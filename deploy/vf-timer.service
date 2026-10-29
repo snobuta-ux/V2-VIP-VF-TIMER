@@ -1,0 +1,14 @@
+[Unit]
+Description=VIP Vertical Farm timer (light, pump, fan)
+After=network-online.target time-sync.target
+Wants=network-online.target
+
+[Service]
+User=__USER__
+WorkingDirectory=__PROJECT_DIR__
+ExecStart=__PROJECT_DIR__/venv/bin/python -m src.main
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

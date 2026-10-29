@@ -1,0 +1,47 @@
+# VIP Vertical Farm — Timer Controller
+#
+# Every device is a GPIO pin wired to one relay channel.
+# Pin numbers are BOARD numbers (the physical pin number on the 40-pin header).
+# Times are the Pi's local time — set its timezone with:
+#   sudo timedatectl set-timezone America/Indiana/Indianapolis
+#
+# Schedule types:
+#   daily      on_time: "HH:MM", off_time: "HH:MM"               on between two times every day
+#   interval   every_minutes, run_seconds, start_at: "HH:MM"     run N seconds every M minutes
+#   times      at: ["HH:MM", ...], run_seconds                   run N seconds at fixed times
+#   always_on
+#   off
+#
+# After changing this file:  sudo systemctl restart vf-timer
+
+relay:
+  active_low: true      # most relay boards: pin LOW = relay ON. Set false if yours is reversed.
+
+devices:
+  light:
+    pin: 13             # same pin as the original grow-light relay
+    schedule:
+      type: daily
+      on_time: "06:00"
+      off_time: "22:00" # 16 h of light
+
+  pump:
+    pin: 11
+    max_run_seconds: 60 # safety cut-off: pump is never on longer than this in one go
+    schedule:
+      type: interval
+      every_minutes: 360  # every 6 hours...
+      run_seconds: 5      # ...for 5 seconds (5 s x 168 ml/s ≈ 840 ml)
+      start_at: "06:00"   # -> waters at 06:00, 12:00, 18:00, 00:00
+
+  fan:
+    pin: 15
+    schedule:
+      type: interval
+      every_minutes: 30   # every 30 minutes...
+      run_seconds: 600    # ...run for 10 minutes
+      start_at: "00:00"
+
+api:
+  host: "0.0.0.0"
+  port: 8080
