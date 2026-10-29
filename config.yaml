@@ -1,7 +1,16 @@
 # VIP Vertical Farm — Timer Controller
 #
-# Every device is a GPIO pin wired to one relay channel.
-# Pin numbers are BOARD numbers (the physical pin number on the 40-pin header).
+# Every device is a GPIO pin wired to one channel of the 4-channel relay board.
+# Pin numbers are BOARD numbers (the physical pin number on the Pi 4's 40-pin header).
+#
+# Relay board header  ->  Raspberry Pi 4
+#   VCC               ->  pin 2  (5V)
+#   GND               ->  pin 6  (GND)
+#   IN1  (K1, far left)   ->  pin 11 (GPIO17)  pump
+#   IN2  (K2)             ->  pin 13 (GPIO27)  fan   (disabled below until wired)
+#   IN3  (K3)             ->  pin 15 (GPIO22)  spare
+#   IN4  (K4, far right)  ->  pin 16 (GPIO23)  light
+# Leave the JD-VCC jumper on the relay board in place.
 # Times are the Pi's local time — set its timezone with:
 #   sudo timedatectl set-timezone America/Indiana/Indianapolis
 #
@@ -19,14 +28,14 @@ relay:
 
 devices:
   light:
-    pin: 13             # same pin as the original grow-light relay
+    pin: 16             # relay IN4 (K4, far right)
     schedule:
       type: daily
       on_time: "06:00"
       off_time: "22:00" # 16 h of light
 
   pump:
-    pin: 11
+    pin: 11             # relay IN1 (K1, far left)
     max_run_seconds: 60 # safety cut-off: pump is never on longer than this in one go
     schedule:
       type: interval
@@ -35,7 +44,8 @@ devices:
       start_at: "06:00"   # -> waters at 06:00, 12:00, 18:00, 00:00
 
   fan:
-    pin: 15
+    enabled: false      # not wired yet - wire to relay IN2 and set to true
+    pin: 13             # relay IN2 (K2)
     schedule:
       type: interval
       every_minutes: 30   # every 30 minutes...

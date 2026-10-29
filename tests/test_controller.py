@@ -108,9 +108,8 @@ def test_unknown_device():
 
 def test_shipped_config_builds():
     config = yaml.safe_load((Path(__file__).parent.parent / "config.yaml").read_text())
-    devices = build_devices(config)
-    assert {d.name for d in devices} == {"light", "pump", "fan"}
-    assert {d.relay.pin for d in devices} == {13, 11, 15}
+    devices = {d.name: d.relay.pin for d in build_devices(config)}
+    assert devices == {"pump": 11, "light": 16}  # relay IN1 / IN4; fan disabled
 
 
 def test_config_rejects_pump_longer_than_cutoff():

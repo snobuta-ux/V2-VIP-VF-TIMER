@@ -4,21 +4,26 @@ A plain timer version of the [VIP Vertical Farm](https://github.com/CoolGuy2982/
 
 - **Light**: on/off at set clock times (default 06:00–22:00)
 - **Pump**: runs N seconds every M minutes (default 5 s every 6 h)
-- **Fan**: runs N seconds every M minutes (default 10 min every 30 min)
+- **Fan**: runs N seconds every M minutes (default 10 min every 30 min). Turned off in `config.yaml` until it's wired
 
 All three are switched by GPIO relays on a Raspberry Pi. Schedules depend only on the clock, so a reboot never double-waters or skips a cycle.
 
 ## Hardware
 
-| Device | Relay channel | Pi pin (BOARD) |
-|---|---|---|
-| Grow light | Relay IN1 | **13** |
-| Water pump | Relay IN2 | **11** |
-| Fan | Relay IN3 | **15** |
-| Relay VCC | | 2 (5V) |
-| Relay GND | | 6 (GND) |
+Raspberry Pi 4 Model B with a 4-channel 5V relay board (Songle SRD-05VDC-SL-C).
 
-Each device's power goes through its relay's **COM** and **NO** (normally open) terminals, so a device is OFF whenever the Pi is off or the program isn't running.
+| Relay board pin | Relay | Device | Pi physical pin (BOARD) | GPIO (BCM) |
+|---|---|---|---|---|
+| VCC | | power | **2** (5V) | |
+| GND | | ground | **6** (GND) | |
+| IN1 | K1 (far left) | Water pump | **11** | GPIO17 |
+| IN2 | K2 | Fan (disabled until wired) | **13** | GPIO27 |
+| IN3 | K3 | spare | **15** | GPIO22 |
+| IN4 | K4 (far right) | Grow light | **16** | GPIO23 |
+
+Leave the **JD-VCC jumper** on the relay board in place. `config.yaml` uses the physical (BOARD) pin numbers.
+
+Each device's power goes through its relay's **COM** and **NO** (normally open) screw terminals, so a device is OFF whenever the Pi is off or the program isn't running. Check with a multimeter or the board's markings which terminal is which, because if you use **NC** instead the device runs backwards (on when it should be off).
 
 > **Active-Low:** most relay boards switch ON when the pin goes LOW. If your relays come on when they should be off, set `relay.active_low: false` in `config.yaml`.
 
@@ -47,7 +52,7 @@ To use different pins, change `pin:` under each device in `config.yaml`.
 
 ```bash
 sudo systemctl stop vf-timer
-venv/bin/python test_hardware.py          # clicks light, pump, fan one by one
+venv/bin/python test_hardware.py          # clicks pump and light one by one
 sudo systemctl start vf-timer
 ```
 

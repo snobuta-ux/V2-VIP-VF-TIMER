@@ -2,7 +2,7 @@
 
 Stop the service first so it isn't holding the pins:
     sudo systemctl stop vf-timer
-    venv/bin/python test_hardware.py            # all devices
+    venv/bin/python test_hardware.py            # all enabled devices
     venv/bin/python test_hardware.py pump       # just one
 """
 
@@ -22,7 +22,8 @@ def main():
     config = yaml.safe_load((Path(__file__).parent / "config.yaml").read_text())
     active_low = config.get("relay", {}).get("active_low", True)
     devices = config.get("devices", {})
-    wanted = sys.argv[1:] or list(devices)
+    # Named on the command line, or every device that's enabled in config.yaml
+    wanted = sys.argv[1:] or [n for n, cfg in devices.items() if cfg.get("enabled", True)]
 
     if GPIO is None:
         print("RPi.GPIO not found - run this on the Raspberry Pi.")
