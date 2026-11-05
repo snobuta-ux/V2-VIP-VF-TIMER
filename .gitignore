@@ -181,4 +181,9 @@ cython_debug/
 .cursorindexingignore
 # Project
 data/
+
+# Firebase service account key: NEVER commit (this repo is public)
+firebase-credentials.json
+*firebase-adminsdk*.json
+serviceAccount*.json
 .DS_Store

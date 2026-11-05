@@ -84,6 +84,23 @@ journalctl -u vf-timer -f                 # live log (also saved in data/logs/ti
 curl http://<pi-ip>:8080/api/status       # current state + next change for each device
 ```
 
+## Firebase logging
+
+Everything the timer does is logged to Firestore under `grows/<device_id>` (`device_id: farm2` in `config.yaml`):
+
+| Path | What's in it |
+|---|---|
+| `grows/farm2` | farm name, pins, schedules, start time, code version |
+| `grows/farm2/live/status` | heartbeat every 60 s: `online`, each device's state and next change, Pi clock vs `server_time`, CPU temp, disk, uptime |
+| `grows/farm2/live/logs` | the last 200 log lines |
+| `grows/farm2/events/*` | one doc per event: `switch` (relay on/off, with `source` and `ran_seconds`), `override`, `override_cleared`, `override_ended`, `safety_cutoff`, `safety_cleared`, `warning`, `error`, `startup`, `shutdown` |
+
+Every doc has `server_time` (Firebase's clock), so sort by that: the Pi's own clock can be wrong.
+
+Setup: put the service account key in the project folder as `firebase-credentials.json` (Firebase console → Project settings → Service accounts → Generate new private key), then run `bash install.sh`. **Never commit that file.** It's in `.gitignore`, and this repo is public.
+
+If Firebase can't be reached, the timer keeps running and keeps the events in memory until the connection is back. Set `firebase.enabled: false` to turn logging off.
+
 ## API
 
 | Method | Endpoint | What it does |
@@ -127,6 +144,7 @@ src/schedules.py     schedule types: "should this be on right now?"
 src/relays.py        GPIO relay on/off (simulated off-Pi)
 src/controller.py    1-second loop, manual overrides, safety cut-off
 src/api_server.py    REST API
+src/cloud_log.py     Firebase logging (events, status heartbeat, log lines)
 src/main.py          starts everything
 test_hardware.py     relay wiring test
 install.sh           Pi setup + systemd service

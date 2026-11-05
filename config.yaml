@@ -55,3 +55,15 @@ devices:
 api:
   host: "0.0.0.0"
   port: 8080
+
+# Logs everything to Firebase (Firestore): every light/pump/fan switch, manual
+# overrides, safety cut-offs, warnings and errors, plus a status heartbeat.
+# Needs firebase-credentials.json (service account key) in this folder.
+# NEVER commit that file: it's in .gitignore.
+firebase:
+  enabled: true
+  credentials_file: firebase-credentials.json
+  device_id: farm2            # data goes to grows/farm2/... (farm 1 is grows/raspPi4)
+  farm_name: "V2 timer farm"
+  database_id: "(default)"    # or the ID of a separate Firestore database
+  heartbeat_seconds: 60       # status update interval (60 s = 1440 writes/day)

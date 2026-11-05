@@ -13,6 +13,7 @@ import uvicorn
 import yaml
 
 from .api_server import create_app
+from .cloud_log import CloudLogHandler, FirebaseLogger
 from .controller import Controller, Device
 from .relays import Relay, cleanup_gpio, init_gpio
 from .schedules import build_schedule
@@ -104,6 +105,18 @@ def main():
         sys.exit(1)
 
     controller = Controller(devices)
+
+    # Firebase logging starts before the timer loop so the first switches are sent too.
+    farm_info = {
+        "name": config.get("firebase", {}).get("farm_name", "V2 timer farm"),
+        "devices": {d.name: {"pin": d.relay.pin, "schedule": d.schedule.describe(),
+                             "max_run_seconds": d.max_run_seconds} for d in devices},
+    }
+    fb = FirebaseLogger(config.get("firebase"), BASE_DIR, controller.status, farm_info)
+    if fb.start():
+        logging.getLogger().addHandler(CloudLogHandler(fb))
+        controller.listeners.append(fb.controller_event)
+
     loop = threading.Thread(target=controller.run, daemon=True)
     loop.start()
 
@@ -124,6 +137,7 @@ def main():
         controller.stop()
         loop.join(timeout=5)
         cleanup_gpio([d.relay for d in devices])
+        fb.stop()
 
 
 if __name__ == "__main__":

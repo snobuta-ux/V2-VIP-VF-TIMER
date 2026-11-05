@@ -48,6 +48,9 @@ class Controller:
         self.devices = {d.name: d for d in devices}
         self.clock = clock
         self.events: deque = deque(maxlen=200)
+        # Functions called with every event dict (e.g. the Firebase logger).
+        # Called while holding the lock, so they must return quickly.
+        self.listeners: list[Callable[[dict], None]] = []
         self._lock = threading.Lock()
         self._stop = threading.Event()
 
@@ -78,6 +81,7 @@ class Controller:
         if d.override_until is not None and now >= d.override_until:
             logger.info("%s: manual override ended, back to schedule", d.name)
             d.override_on = d.override_until = None
+            self._record(now, "override_ended", d.name)
 
         if d.override_on is not None:
             want, source = d.override_on, "manual"
@@ -89,6 +93,7 @@ class Controller:
             if not want:
                 d.locked_out = False
                 logger.info("%s: safety cut-off cleared", d.name)
+                self._record(now, "safety_cleared", d.name)
             want, source = False, "safety"
 
         if want and d.relay.is_on and d.max_run_seconds and d.on_since:
@@ -97,6 +102,7 @@ class Controller:
                                d.name, d.max_run_seconds)
                 d.locked_out = True
                 d.override_on = d.override_until = None
+                self._record(now, "safety_cutoff", d.name, max_run_seconds=d.max_run_seconds)
                 want, source = False, "safety"
 
         if want != d.relay.is_on:
@@ -104,19 +110,27 @@ class Controller:
 
     def _switch(self, d: Device, on: bool, source: str, now: datetime):
         d.relay.set(on)
+        ran_seconds = None
         if on:
             d.on_since = now
         else:
             if d.on_since:
-                d.total_on_seconds += (now - d.on_since).total_seconds()
+                ran_seconds = (now - d.on_since).total_seconds()
+                d.total_on_seconds += ran_seconds
             d.on_since = None
         logger.info("%s -> %s (%s)", d.name, "ON" if on else "OFF", source)
-        self.events.append({
-            "time": now.isoformat(timespec="seconds"),
-            "device": d.name,
-            "state": "on" if on else "off",
-            "source": source,
-        })
+        extra = {"ran_seconds": round(ran_seconds, 1)} if ran_seconds is not None else {}
+        self._record(now, "switch", d.name, state="on" if on else "off", source=source, **extra)
+
+    def _record(self, now: datetime, kind: str, device: str, **fields):
+        event = {"time": now.isoformat(timespec="seconds"), "type": kind,
+                 "device": device, **fields}
+        self.events.append(event)
+        for listener in self.listeners:
+            try:
+                listener(event)
+            except Exception:
+                logger.exception("event listener failed")
 
     # ── manual control (used by the API) ─────────────────────────────────────
 
@@ -135,6 +149,8 @@ class Controller:
             d.override_until = now + timedelta(seconds=seconds)
             d.locked_out = False
             logger.info("%s: manual %s for %gs", d.name, "ON" if on else "OFF", seconds)
+            self._record(now, "override", d.name, state="on" if on else "off",
+                         seconds=seconds, source="api")
             self._update(d, now)
         return self.device_status(d, now)
 
@@ -144,6 +160,7 @@ class Controller:
         with self._lock:
             d.override_on = d.override_until = None
             logger.info("%s: back to schedule", d.name)
+            self._record(now, "override_cleared", d.name, source="api")
             self._update(d, now)
         return self.device_status(d, now)
 
