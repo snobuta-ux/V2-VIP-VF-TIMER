@@ -67,3 +67,22 @@ firebase:
   farm_name: "V2 timer farm"
   database_id: "(default)"    # or the ID of a separate Firestore database
   heartbeat_seconds: 60       # status update interval (60 s = 1440 writes/day)
+
+# USB webcam: routine photos uploaded to Firebase.
+# Plug the webcam into any USB port - it's found automatically.
+# Files are named <group>_<device_id>_<date>_<time>.jpg, e.g. timer_farm2_2026-11-12_09-00-00.jpg
+# and go to Firebase Storage grows/farm2/photos/ (plus an info doc in Firestore
+# grows/farm2/photos). If the project has no Storage bucket, the photo is
+# stored inside the Firestore doc instead.
+camera:
+  enabled: true
+  group: timer                # first part of every filename
+  every_minutes: 60           # one photo an hour...
+  start_at: "06:00"           # ...from 06:00
+  end_at: "21:00"             # ...to 21:00 (16 photos a day)
+  only_when_light_on: true    # skip photos while the grow light is off
+  resolution: "1280x720"
+  jpeg_quality: 85
+  upload_to: auto             # auto | storage | firestore
+  storage_bucket: ""          # blank = <project>.firebasestorage.app or <project>.appspot.com
+  keep_days: 30               # local copies in data/photos/ are deleted after this

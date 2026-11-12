@@ -101,6 +101,19 @@ Setup: put the service account key in the project folder as `firebase-credential
 
 If Firebase can't be reached, the timer keeps running and keeps the events in memory until the connection is back. Set `firebase.enabled: false` to turn logging off.
 
+## Webcam photos
+
+Plug a USB webcam into any USB port. The timer finds it by itself, and if it's unplugged or moved to another port it finds it again before the next photo.
+
+By default it takes a photo every hour from 06:00 to 21:00, skipping any while the grow light is off (`camera:` in `config.yaml`). Files are named `<group>_<device_id>_<date>_<time>.jpg`, e.g. `timer_farm2_2026-11-12_09-00-00.jpg`, and uploaded to:
+
+- Firebase Storage: `grows/farm2/photos/<filename>`, with an info doc (time, light on/off, download `url`) in Firestore `grows/farm2/photos`.
+- If the Firebase project has no Storage bucket, the photo is stored in that Firestore doc instead (field `jpeg`).
+
+Photos are saved in `data/photos/` first. If the Pi is offline they wait in `data/photos/pending/` and upload once it's back.
+
+Test it: `curl -X POST http://localhost:8080/api/camera/snap`. Camera status: `curl http://localhost:8080/api/camera`.
+
 ## API
 
 | Method | Endpoint | What it does |
@@ -109,6 +122,8 @@ If Firebase can't be reached, the timer keeps running and keeps the events in me
 | GET | `/api/health` | `{"status": "ok"}` |
 | POST | `/api/{device}/on` | Force on. Body `{"seconds": 10}` or `{"minutes": 5}` (default 60 min, pump capped at `max_run_seconds`) |
 | POST | `/api/{device}/off` | Force off for a while (same body, default 60 min) |
+| GET | `/api/camera` | Webcam found, next photo, last photo, uploads waiting |
+| POST | `/api/camera/snap` | Take and upload a photo now |
 | POST | `/api/{device}/auto` | Cancel the manual override and go back to the schedule |
 
 `{device}` is `light`, `pump` or `fan`. Manual overrides always end on their own and return to the schedule.
@@ -145,6 +160,7 @@ src/relays.py        GPIO relay on/off (simulated off-Pi)
 src/controller.py    1-second loop, manual overrides, safety cut-off
 src/api_server.py    REST API
 src/cloud_log.py     Firebase logging (events, status heartbeat, log lines)
+src/camera.py        USB webcam photos -> Firebase
 src/main.py          starts everything
 test_hardware.py     relay wiring test
 install.sh           Pi setup + systemd service

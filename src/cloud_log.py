@@ -65,6 +65,7 @@ class FirebaseLogger:
         self.status_fn = status_fn
         self.farm_info = farm_info or {}
         self._db = client
+        self._app = None
         self._server_ts = server_timestamp or _server_timestamp
 
         self._events: deque = deque(maxlen=MAX_PENDING_EVENTS)
@@ -112,9 +113,16 @@ class FirebaseLogger:
         except ValueError:
             app = firebase_admin.initialize_app(
                 credentials.Certificate(str(self.credentials_path)), name=app_name)
+        self._app = app
         if self.database_id == "(default)":
             return firestore.client(app)
         return firestore.client(app, database_id=self.database_id)
+
+    def firebase_app(self):
+        """The firebase_admin App (for Storage uploads). Only set after start()."""
+        if self._app is None:
+            raise RuntimeError("Firebase is not connected")
+        return self._app
 
     @property
     def active(self) -> bool:

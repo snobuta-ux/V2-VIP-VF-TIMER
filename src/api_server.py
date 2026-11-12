@@ -24,7 +24,8 @@ class Duration(BaseModel):
         return None
 
 
-def create_app(controller: Controller, api_key: Optional[str] = None) -> FastAPI:
+def create_app(controller: Controller, api_key: Optional[str] = None,
+               camera=None) -> FastAPI:
     app = FastAPI(title="VIP Vertical Farm - Timer")
 
     def require_key(x_api_key: Optional[str] = Header(default=None)):
@@ -46,6 +47,18 @@ def create_app(controller: Controller, api_key: Optional[str] = None) -> FastAPI
     @app.get("/api/status")
     def status():
         return controller.status()
+
+    @app.get("/api/camera")
+    def camera_status():
+        if camera is None:
+            raise HTTPException(404, "camera is not running (see the log)")
+        return camera.status()
+
+    @app.post("/api/camera/snap", dependencies=[Depends(require_key)])
+    def camera_snap():
+        if camera is None:
+            raise HTTPException(404, "camera is not running (see the log)")
+        return camera.snap("manual")
 
     @app.post("/api/{device}/on", dependencies=[Depends(require_key)])
     def turn_on(device: str, body: Duration = Duration()):

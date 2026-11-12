@@ -13,6 +13,7 @@ import uvicorn
 import yaml
 
 from .api_server import create_app
+from .camera import Camera
 from .cloud_log import CloudLogHandler, FirebaseLogger
 from .controller import Controller, Device
 from .relays import Relay, cleanup_gpio, init_gpio
@@ -117,12 +118,24 @@ def main():
         logging.getLogger().addHandler(CloudLogHandler(fb))
         controller.listeners.append(fb.controller_event)
 
+    camera = None
+    try:
+        light = controller.devices.get("light")
+        camera = Camera(config.get("camera"), BASE_DIR, fb,
+                        light_is_on=(lambda: light.relay.is_on) if light else None)
+        if not camera.start():
+            camera = None
+    except Exception as e:  # the camera must never stop the timer
+        logger.warning("camera: NOT taking photos (%s). The timer still runs.", e)
+        camera = None
+
     loop = threading.Thread(target=controller.run, daemon=True)
     loop.start()
 
     api_cfg = config.get("api", {})
     host, port = api_cfg.get("host", "0.0.0.0"), api_cfg.get("port", 8080)
-    app = create_app(controller, api_key=os.environ.get("API_KEY") or None)
+    app = create_app(controller, api_key=os.environ.get("API_KEY") or None,
+                     camera=camera)
     logger.info("API at http://%s:%d/api/status", host, port)
 
     # uvicorn re-raises SIGTERM (systemctl stop) after it shuts down. Without a
@@ -137,6 +150,8 @@ def main():
         controller.stop()
         loop.join(timeout=5)
         cleanup_gpio([d.relay for d in devices])
+        if camera:
+            camera.stop()
         fb.stop()
 
 

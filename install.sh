@@ -11,7 +11,7 @@ cd "$PROJECT_DIR"
 
 echo "== Installing system packages"
 sudo apt-get update -qq
-sudo apt-get install -y -qq python3-venv python3-pip
+sudo apt-get install -y -qq python3-venv python3-pip fswebcam
 # GPIO library: rpi-lgpio works on Pi 4 and Pi 5; fall back to classic RPi.GPIO
 sudo apt-get install -y -qq python3-rpi-lgpio || sudo apt-get install -y -qq python3-rpi.gpio
 
@@ -29,6 +29,8 @@ fi
 
 # Let this user drive GPIO without sudo
 sudo usermod -aG gpio "$USER" || true
+# ...and use the webcam
+sudo usermod -aG video "$USER" || true
 
 echo "== Installing the $SERVICE service"
 sed -e "s|__USER__|$USER|g" -e "s|__PROJECT_DIR__|$PROJECT_DIR|g" \
