@@ -68,12 +68,12 @@ sudo systemctl restart vf-timer
 | Type | Settings | Example |
 |---|---|---|
 | `daily` | `on_time`, `off_time` | light on 06:00, off 22:00 |
-| `interval` | `every_minutes`, `run_seconds`, `start_at` | pump 5 s every 360 min from 06:00 |
+| `interval` | `every_minutes`, `run_seconds`, `start_at` | pump 60 s every 360 min from 06:00 |
 | `times` | `at` (list), `run_seconds` | pump 5 s at `["07:00", "19:00"]` |
 | `always_on` | none | fan always running |
 | `off` | none | device disabled |
 
-`max_run_seconds` is a safety cut-off. If a device stays on longer than that, it's forced off. It's set to 60 s for the pump, so a typo can't flood the tray.
+`max_run_seconds` is a safety cut-off. If a device stays on longer than that, it's forced off. It's set to 90 s for the pump, so a typo can't flood the tray.
 
 For a quick test, try `every_minutes: 2` and `run_seconds: 2` on the pump. Remember to change it back.
 
