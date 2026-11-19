@@ -1,11 +1,19 @@
-"""USB webcam: take routine photos and upload them to Firebase.
+"""USB webcams: take routine photos and upload them to Firebase.
 
-- Finds the USB webcam on any USB port and keeps using it. If it's unplugged or
-  moved to another port, it looks again before the next photo.
+Two webcams: "plant" (pointed at the plants) and "dashboard" (pointed at the
+climate controller's display). Each one is a Camera; build_cameras() makes
+them from config.yaml.
+
+- Finds the USB webcams on any USB port. With `device: auto` the webcam on the
+  lowest USB port is the plant camera and the next one is the dashboard
+  camera. Set `device:` to a USB port (e.g. "1-1.2", shown on the website and
+  in /api/camera) or /dev/videoN to pin a camera. If a webcam is unplugged or
+  moved, it looks again before the next photo.
 - Takes a photo every `every_minutes` between `start_at` and `end_at`
   (optionally only while the light is on, so there are no black night photos).
-- Filename: <group>_<device_id>_<YYYY-MM-DD_HH-MM-SS>.jpg, e.g.
-  timer_farm2_2026-11-12_09-00-00.jpg
+- Filename: <group>_<device_id>_<YYYY-MM-DD_HH-MM-SS>.jpg for the plant camera,
+  e.g. timer_farm2_2026-11-12_09-00-00.jpg, and
+  <group>_<device_id>_dashboard_<...>.jpg for the dashboard camera.
 - Every photo is saved in data/photos/ first, then uploaded:
     Firebase Storage   grows/<device_id>/photos/<filename>
     Firestore          grows/<device_id>/photos/<filename without .jpg>  (info + link)
@@ -33,31 +41,70 @@ from urllib.parse import quote
 logger = logging.getLogger(__name__)
 
 V4L_SYS = Path("/sys/class/video4linux")
+CAMERA_NAMES = ("plant", "dashboard")
+# Two webcams grabbing frames at once can run out of USB bandwidth, so photos
+# are taken one at a time.
+_CAPTURE_LOCK = threading.Lock()
 FIRESTORE_MAX_JPEG = 900_000  # a Firestore doc can be at most 1 MiB
 RETRY_SECONDS = 300
 
 
-def find_usb_camera(sys_dir: Path = V4L_SYS) -> Optional[str]:
-    """Return /dev/videoN of the first USB webcam, or None.
+def find_usb_cameras(sys_dir: Path = V4L_SYS) -> list[dict]:
+    """Every USB webcam: [{"dev": "/dev/video0", "port": "1-1.2", "name": ...}],
+    sorted by USB port so the order stays the same across reboots.
 
     A USB webcam shows up as two nodes (videoN for pictures, videoN+1 for
     metadata) - only the one with index 0 can take pictures. The Pi's own
     video nodes (codec, ISP) aren't on USB, so they're skipped.
     """
     if not sys_dir.exists():
-        return None
-    nodes = sorted(sys_dir.glob("video*"), key=lambda p: int(p.name[5:] or 0))
-    for node in nodes:
+        return []
+    found = []
+    for node in sys_dir.glob("video*"):
         try:
-            if "/usb" not in str((node / "device").resolve()):
+            target = str((node / "device").resolve())
+            if "/usb" not in target:
                 continue
             index = (node / "index").read_text().strip() if (node / "index").exists() else "0"
             if index != "0":
                 continue
+            name = (node / "name").read_text().strip() if (node / "name").exists() else ""
         except OSError:
             continue
-        return f"/dev/{node.name}"
-    return None
+        # .../usb1/1-1/1-1.2/1-1.2:1.0 -> the USB port is "1-1.2"
+        iface = next((part for part in reversed(target.split("/")) if ":" in part), "")
+        port = iface.split(":")[0] or node.name
+        found.append({"dev": f"/dev/{node.name}", "port": port, "name": name})
+    return sorted(found, key=lambda c: [int(x) if x.isdigit() else x
+                                        for x in c["port"].replace("-", ".").split(".")])
+
+
+def find_usb_camera(sys_dir: Path = V4L_SYS) -> Optional[str]:
+    """/dev/videoN of the first USB webcam, or None."""
+    cams = find_usb_cameras(sys_dir)
+    return cams[0]["dev"] if cams else None
+
+
+def assign_cameras(found: list[dict], wanted: dict) -> dict:
+    """Match webcams to camera names.
+
+    wanted: {"plant": "auto", "dashboard": "1-1.3", ...} (config order).
+    Pinned cameras (a USB port or /dev/videoN) get theirs first; "auto" ones
+    take what's left in USB-port order. Returns {name: dev or None}.
+    """
+    out, used = {}, set()
+    for name, pref in wanted.items():
+        pref = str(pref or "auto").strip()
+        if pref != "auto":
+            match = next((c for c in found if pref in (c["dev"], c["port"])), None)
+            out[name] = match["dev"] if match else None
+            if match:
+                used.add(match["dev"])
+    free = [c["dev"] for c in found if c["dev"] not in used]
+    for name, pref in wanted.items():
+        if name not in out:
+            out[name] = free.pop(0) if free else None
+    return out
 
 
 def fswebcam_capture(device: str, out: Path, resolution: str, skip_frames: int,
@@ -98,13 +145,15 @@ def next_slot(now: datetime, start_at: str, end_at: str, every_minutes: float) -
 
 
 class Camera:
-    def __init__(self, config: dict, base_dir: Path, fb=None,
+    def __init__(self, config: dict, base_dir: Path, fb=None, name: str = "plant",
                  light_is_on: Optional[Callable[[], bool]] = None,
                  clock: Callable[[], datetime] = datetime.now,
                  find: Callable[[], Optional[str]] = find_usb_camera,
                  capture: Callable = fswebcam_capture):
         cfg = config or {}
+        self.name = name
         self.enabled = cfg.get("enabled", True)
+        self.device_pref = str(cfg.get("device", "auto"))
         self.group = str(cfg.get("group", "timer"))
         self.every_minutes = float(cfg.get("every_minutes", 60))
         self.start_at = str(cfg.get("start_at", "06:00"))
@@ -127,7 +176,8 @@ class Camera:
         self._find = find
         self._capture = capture
 
-        self.photo_dir = base_dir / "data" / "photos"
+        # The plant camera keeps the original folder so older photos still match
+        self.photo_dir = base_dir / "data" / "photos" / ("" if name == "plant" else name)
         self.pending_dir = self.photo_dir / "pending"
         self.device: Optional[str] = None  # the webcam we latched on to
         self._bucket = None
@@ -142,18 +192,19 @@ class Camera:
 
     def start(self) -> bool:
         if not self.enabled:
-            logger.info("camera: disabled in config.yaml")
+            logger.info("camera %s: disabled in config.yaml", self.name)
             return False
         self.pending_dir.mkdir(parents=True, exist_ok=True)
         self.device = self._find()
         if self.device:
-            logger.info("camera: using USB webcam %s", self.device)
+            logger.info("camera %s: using USB webcam %s", self.name, self.device)
         else:
-            logger.warning("camera: no USB webcam found yet - will keep looking before each photo")
-        logger.info("camera: photo every %g min from %s to %s%s", self.every_minutes,
+            logger.warning("camera %s: no USB webcam found yet - will keep looking before "
+                           "each photo", self.name)
+        logger.info("camera %s: photo every %g min from %s to %s%s", self.name, self.every_minutes,
                     self.start_at, self.end_at,
                     " (only while the light is on)" if self.only_when_light_on else "")
-        self._thread = threading.Thread(target=self._run, name="camera", daemon=True)
+        self._thread = threading.Thread(target=self._run, name=f"camera-{self.name}", daemon=True)
         self._thread.start()
         return True
 
@@ -163,7 +214,9 @@ class Camera:
             self._thread.join(timeout=10)
 
     def status(self) -> dict:
-        return {"enabled": self.enabled, "webcam": self.device, "group": self.group,
+        return {"name": self.name, "enabled": self.enabled, "webcam": self.device,
+                "device_setting": self.device_pref, "group": self.group,
+                "only_when_light_on": self.only_when_light_on,
                 "every_minutes": self.every_minutes, "window": f"{self.start_at}-{self.end_at}",
                 "next_photo": self.next_photo, "last_photo": self.last_photo,
                 "pending_uploads": len(list(self.pending_dir.glob("*.jpg")))
@@ -184,7 +237,8 @@ class Camera:
             if self._stop.is_set():
                 return
             if self.only_when_light_on and self.light_is_on and not self.light_is_on():
-                logger.info("camera: light is off, skipping the %s photo", due.strftime("%H:%M"))
+                logger.info("camera %s: light is off, skipping the %s photo", self.name,
+                            due.strftime("%H:%M"))
                 continue
             self.snap("schedule")
             self._prune()
@@ -192,7 +246,8 @@ class Camera:
     # ── taking a photo ───────────────────────────────────────────────────────
 
     def filename(self, when: datetime) -> str:
-        return f"{self.group}_{self.device_id}_{when.strftime('%Y-%m-%d_%H-%M-%S')}.jpg"
+        tag = "" if self.name == "plant" else f"{self.name}_"
+        return f"{self.group}_{self.device_id}_{tag}{when.strftime('%Y-%m-%d_%H-%M-%S')}.jpg"
 
     def snap(self, reason: str = "manual") -> dict:
         """Take a photo now and upload it. Never raises; returns what happened."""
@@ -202,11 +257,13 @@ class Camera:
             path = self.pending_dir / name
             self.pending_dir.mkdir(parents=True, exist_ok=True)
             try:
-                self._take(path)
+                with _CAPTURE_LOCK:
+                    self._take(path)
             except Exception as e:
-                logger.warning("camera: photo failed (%s)", e)
-                return {"ok": False, "error": str(e)}
-            info = {"filename": name, "pi_time": when.astimezone().isoformat(timespec="seconds"),
+                logger.warning("camera %s: photo failed (%s)", self.name, e)
+                return {"ok": False, "camera": self.name, "error": str(e)}
+            info = {"filename": name, "camera": self.name,
+                    "pi_time": when.astimezone().isoformat(timespec="seconds"),
                     "reason": reason, "webcam": self.device, "bytes": path.stat().st_size}
             if self.light_is_on:
                 try:
@@ -214,7 +271,7 @@ class Camera:
                 except Exception:
                     pass
             path.with_suffix(".json").write_text(json.dumps(info))
-            logger.info("camera: took %s (%d KB)", name, info["bytes"] // 1024)
+            logger.info("camera %s: took %s (%d KB)", self.name, name, info["bytes"] // 1024)
             uploaded = self._upload(path, info)
             self.last_photo = {**info, "uploaded": uploaded}
             return {"ok": True, **self.last_photo}
@@ -226,8 +283,9 @@ class Camera:
             if not self.device:
                 self.device = self._find()
                 if not self.device:
-                    raise RuntimeError("no USB webcam found - is it plugged in?")
-                logger.info("camera: using USB webcam %s", self.device)
+                    raise RuntimeError(f"no USB webcam found for the {self.name} camera - "
+                                       "is it plugged in?")
+                logger.info("camera %s: using USB webcam %s", self.name, self.device)
             try:
                 self._capture(self.device, path, self.resolution, self.skip_frames, self.quality)
                 return
@@ -236,7 +294,8 @@ class Camera:
                 old, self.device = self.device, None
                 if attempt == 2:
                     raise
-                logger.info("camera: %s didn't work, looking for the webcam again", old)
+                logger.info("camera %s: %s didn't work, looking for the webcam again",
+                            self.name, old)
 
     # ── uploading ────────────────────────────────────────────────────────────
 
@@ -251,6 +310,7 @@ class Camera:
                     continue
                 meta = path.with_suffix(".json")
                 info = json.loads(meta.read_text()) if meta.exists() else {"filename": path.name}
+                info.setdefault("camera", self.name)
                 if not self._upload(path, info):
                     return  # still offline; try again later
 
@@ -261,7 +321,7 @@ class Camera:
         if db is None:
             return False
         doc_id = path.stem
-        data = {**info, "group": self.group, "device_id": self.device_id,
+        data = {"camera": self.name, **info, "group": self.group, "device_id": self.device_id,
                 "server_time": fb._server_ts()}
         try:
             bucket = self._get_bucket()
@@ -293,7 +353,7 @@ class Camera:
         path.with_suffix(".json").unlink(missing_ok=True)
         where = data.get("storage_path") or f"grows/{self.device_id}/photos/{doc_id} (Firestore)"
         logger.info("camera: uploaded %s -> %s", path.name, where)
-        fb.event("photo", filename=path.name, stored_in=data["stored_in"],
+        fb.event("photo", camera=self.name, filename=path.name, stored_in=data["stored_in"],
                  **{k: data[k] for k in ("storage_path", "url") if k in data})
         return True
 
@@ -348,3 +408,36 @@ def _project_id(credentials_path: Path) -> Optional[str]:
         return json.loads(Path(credentials_path).read_text()).get("project_id")
     except Exception:
         return None
+
+
+def camera_configs(config: dict) -> dict:
+    """{name: settings} for every camera.
+
+    `camera:` holds settings shared by both webcams (group, resolution,
+    uploads); `cameras.<name>:` holds each one's own (device, schedule).
+    Without a `cameras:` section there's just the plant camera, as before.
+    """
+    shared = dict(config.get("camera") or {})
+    per = config.get("cameras")
+    if not per:
+        return {"plant": shared}
+    unknown = set(per) - set(CAMERA_NAMES)
+    if unknown:
+        raise ValueError(f"cameras: unknown camera {', '.join(sorted(unknown))} "
+                         f"(use {' / '.join(CAMERA_NAMES)})")
+    return {name: {**shared, **(cfg or {})} for name, cfg in per.items()}
+
+
+def build_cameras(config: dict, base_dir: Path, fb=None,
+                  light_is_on: Optional[Callable[[], bool]] = None,
+                  find_all: Callable[[], list] = find_usb_cameras, **kwargs) -> dict:
+    """Make (but don't start) one Camera per configured webcam."""
+    cfgs = camera_configs(config)
+    wanted = {n: c.get("device", "auto") for n, c in cfgs.items() if c.get("enabled", True)}
+
+    def finder(name):
+        return lambda: assign_cameras(find_all(), wanted).get(name)
+
+    return {name: Camera(cfg, base_dir, fb, name=name, light_is_on=light_is_on,
+                         find=finder(name), **kwargs)
+            for name, cfg in cfgs.items()}

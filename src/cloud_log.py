@@ -74,6 +74,7 @@ class FirebaseLogger:
         self._logs_changed = False
         self._lock = threading.Lock()
         self._stop = threading.Event()
+        self._beat_now = threading.Event()
         self._thread: Optional[threading.Thread] = None
         self._started_at = datetime.now().astimezone().isoformat(timespec="seconds")
         self._version = _git_version(base_dir)
@@ -155,6 +156,12 @@ class FirebaseLogger:
             self.event("error" if level >= logging.ERROR else "warning",
                        message=line, logger=name)
 
+    def write_status_soon(self):
+        """Send the status (and logs) now instead of at the next heartbeat,
+        e.g. right after a website command so the page updates at once."""
+        self._beat_now.set()
+        self._wake.put_nowait(None)
+
     def stop(self, timeout: float = 10):
         if not self.active:
             return
@@ -174,7 +181,8 @@ class FirebaseLogger:
                 farm_info_written = self._safe(self._write_farm_info)
             ok = farm_info_written and self._safe(self._flush_events)
             now = time.monotonic()
-            if ok and (now >= next_beat or stopping):
+            if ok and (now >= next_beat or stopping or self._beat_now.is_set()):
+                self._beat_now.clear()
                 if self._safe(lambda: self._write_status(online=not stopping)):
                     self._safe(self._write_logs)
                 next_beat = now + self.heartbeat_seconds

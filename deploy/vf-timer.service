@@ -6,7 +6,12 @@ Wants=network-online.target
 [Service]
 User=__USER__
 WorkingDirectory=__PROJECT_DIR__
-ExecStart=__PROJECT_DIR__/venv/bin/python -m src.main
+# supervisor.py runs src.main, restarts it for website commands and undoes
+# website edits that make it crash
+ExecStart=__PROJECT_DIR__/venv/bin/python supervisor.py
+# stop: supervisor tells the timer to turn the relays OFF first
+KillMode=mixed
+TimeoutStopSec=30
 Restart=always
 RestartSec=10
 

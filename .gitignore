@@ -181,6 +181,8 @@ cython_debug/
 .cursorindexingignore
 # Project
 data/
+# website edits on the Pi (camera assignment etc.)
+config.local.yaml
 
 # Firebase service account key: NEVER commit (this repo is public)
 firebase-credentials.json

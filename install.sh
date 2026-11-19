@@ -32,6 +32,10 @@ sudo usermod -aG gpio "$USER" || true
 # ...and use the webcam
 sudo usermod -aG video "$USER" || true
 
+# Let the website's "Reboot Pi" button work (only /sbin/reboot, nothing else)
+echo "$USER ALL=(ALL) NOPASSWD: /sbin/reboot" | sudo tee /etc/sudoers.d/vf-timer-reboot > /dev/null
+sudo chmod 440 /etc/sudoers.d/vf-timer-reboot
+
 echo "== Installing the $SERVICE service"
 sed -e "s|__USER__|$USER|g" -e "s|__PROJECT_DIR__|$PROJECT_DIR|g" \
     deploy/vf-timer.service | sudo tee /etc/systemd/system/$SERVICE.service > /dev/null

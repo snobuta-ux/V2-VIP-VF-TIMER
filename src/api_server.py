@@ -25,7 +25,8 @@ class Duration(BaseModel):
 
 
 def create_app(controller: Controller, api_key: Optional[str] = None,
-               camera=None) -> FastAPI:
+               cameras: Optional[dict] = None) -> FastAPI:
+    cameras = cameras or {}
     app = FastAPI(title="VIP Vertical Farm - Timer")
 
     def require_key(x_api_key: Optional[str] = Header(default=None)):
@@ -50,15 +51,16 @@ def create_app(controller: Controller, api_key: Optional[str] = None,
 
     @app.get("/api/camera")
     def camera_status():
-        if camera is None:
-            raise HTTPException(404, "camera is not running (see the log)")
-        return camera.status()
+        if not cameras:
+            raise HTTPException(404, "no camera is running (see the log)")
+        return {name: cam.status() for name, cam in cameras.items()}
 
     @app.post("/api/camera/snap", dependencies=[Depends(require_key)])
-    def camera_snap():
-        if camera is None:
-            raise HTTPException(404, "camera is not running (see the log)")
-        return camera.snap("manual")
+    def camera_snap(camera: str = "both"):
+        names = list(cameras) if camera == "both" else [camera]
+        if not names or any(n not in cameras for n in names):
+            raise HTTPException(404, f"camera not running (running: {', '.join(cameras) or 'none'})")
+        return {n: cameras[n].snap("manual") for n in names}
 
     @app.post("/api/{device}/on", dependencies=[Depends(require_key)])
     def turn_on(device: str, body: Duration = Duration()):

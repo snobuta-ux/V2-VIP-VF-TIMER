@@ -134,7 +134,8 @@ class Controller:
 
     # ── manual control (used by the API) ─────────────────────────────────────
 
-    def set_override(self, name: str, on: bool, seconds: Optional[float] = None) -> dict:
+    def set_override(self, name: str, on: bool, seconds: Optional[float] = None,
+                     source: str = "api") -> dict:
         d = self._get(name)
         if seconds is None:
             seconds = DEFAULT_OVERRIDE_MINUTES * 60
@@ -150,17 +151,17 @@ class Controller:
             d.locked_out = False
             logger.info("%s: manual %s for %gs", d.name, "ON" if on else "OFF", seconds)
             self._record(now, "override", d.name, state="on" if on else "off",
-                         seconds=seconds, source="api")
+                         seconds=seconds, source=source)
             self._update(d, now)
         return self.device_status(d, now)
 
-    def clear_override(self, name: str) -> dict:
+    def clear_override(self, name: str, source: str = "api") -> dict:
         d = self._get(name)
         now = self.clock()
         with self._lock:
             d.override_on = d.override_until = None
             logger.info("%s: back to schedule", d.name)
-            self._record(now, "override_cleared", d.name, source="api")
+            self._record(now, "override_cleared", d.name, source=source)
             self._update(d, now)
         return self.device_status(d, now)
 

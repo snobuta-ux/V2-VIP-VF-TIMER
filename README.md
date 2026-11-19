@@ -3,7 +3,7 @@
 A plain timer version of the [VIP Vertical Farm](https://github.com/CoolGuy2982/VIP-Vertical-Farm) grower for a separate trial. There's no AI: the grow light, water pump and fan each run on a fixed schedule that you set in `config.yaml`.
 
 - **Light**: on/off at set clock times (default 06:00–22:00)
-- **Pump**: runs N seconds every M minutes (default 5 s every 6 h)
+- **Pump**: runs 10 minutes straight, three times a day (07:00, 12:00, 19:00)
 - **Fan**: runs N seconds every M minutes (default 10 min every 30 min). Turned off in `config.yaml` until it's wired
 
 All three are switched by GPIO relays on a Raspberry Pi. Schedules depend only on the clock, so a reboot never double-waters or skips a cycle.
@@ -69,11 +69,11 @@ sudo systemctl restart vf-timer
 |---|---|---|
 | `daily` | `on_time`, `off_time` | light on 06:00, off 22:00 |
 | `interval` | `every_minutes`, `run_seconds`, `start_at` | pump 60 s every 360 min from 06:00 |
-| `times` | `at` (list), `run_seconds` | pump 5 s at `["07:00", "19:00"]` |
+| `times` | `at` (list), `run_seconds` | pump 600 s at `["07:00", "12:00", "19:00"]` |
 | `always_on` | none | fan always running |
 | `off` | none | device disabled |
 
-`max_run_seconds` is a safety cut-off. If a device stays on longer than that, it's forced off. It's set to 90 s for the pump, so a typo can't flood the tray.
+`max_run_seconds` is a safety cut-off. If a device stays on longer than that, it's forced off. It's set to 660 s (11 min) for the pump, just above its 10-minute run, so a typo or stuck relay can't run it for hours.
 
 For a quick test, try `every_minutes: 2` and `run_seconds: 2` on the pump. Remember to change it back.
 
@@ -101,18 +101,35 @@ Setup: put the service account key in the project folder as `firebase-credential
 
 If Firebase can't be reached, the timer keeps running and keeps the events in memory until the connection is back. Set `firebase.enabled: false` to turn logging off.
 
-## Webcam photos
+## Webcam photos (plant + dashboard)
 
-Plug a USB webcam into any USB port. The timer finds it by itself, and if it's unplugged or moved to another port it finds it again before the next photo.
+Two USB webcams: **plant** (pointed at the plants) and **dashboard** (pointed at the climate controller's display). Plug both into any USB ports; they're found by themselves. With `device: auto` the webcam on the lowest USB port is the plant camera and the next one is the dashboard camera. If they come out swapped, press **Swap cameras** on the website (it pins each one to its USB port in `config.local.yaml`).
 
-By default it takes a photo every hour from 06:00 to 21:00, skipping any while the grow light is off (`camera:` in `config.yaml`). Files are named `<group>_<device_id>_<date>_<time>.jpg`, e.g. `timer_farm2_2026-11-12_09-00-00.jpg`, and uploaded to:
+| Camera | Default schedule | Filename |
+|---|---|---|
+| plant | every hour 06:00–21:00, only while the light is on | `timer_farm2_2026-11-12_09-00-00.jpg` |
+| dashboard | every hour, all day | `timer_farm2_dashboard_2026-11-12_09-00-00.jpg` |
 
-- Firebase Storage: `grows/farm2/photos/<filename>`, with an info doc (time, light on/off, download `url`) in Firestore `grows/farm2/photos`.
-- If the Firebase project has no Storage bucket, the photo is stored in that Firestore doc instead (field `jpeg`).
+Both go to Firebase Storage `grows/farm2/photos/<filename>` with an info doc in Firestore `grows/farm2/photos` (`camera: plant|dashboard`, time, light on/off, download `url`). If the Firebase project has no Storage bucket, the photo is stored in that Firestore doc instead (field `jpeg`).
 
-Photos are saved in `data/photos/` first. If the Pi is offline they wait in `data/photos/pending/` and upload once it's back.
+Photos are saved in `data/photos/` (dashboard: `data/photos/dashboard/`) first. If the Pi is offline they wait in `pending/` and upload once it's back.
 
-Test it: `curl -X POST http://localhost:8080/api/camera/snap`. Camera status: `curl http://localhost:8080/api/camera`.
+Test it: `curl -X POST "http://localhost:8080/api/camera/snap?camera=both"`. Camera status: `curl http://localhost:8080/api/camera`.
+
+## Website remote control
+
+The timer page of the website (`/timer`) controls this Pi through Firestore, the same way the AI farm works. The website writes a command to `grows/farm2/commands`, the Pi runs it within a few seconds and writes back the result. It works from anywhere, with no port forwarding. Everything except viewing needs the website's admin password.
+
+- Turn the light, pump or fan **on / off for a while** or put it **back on its schedule**. Manual runs always end on their own; the pump is capped at `max_run_seconds`.
+- **Take a photo now** (plant, dashboard or both), **swap cameras**.
+- **Edit `config.yaml` / `config.local.yaml` and the code** (any tracked `.py`, `.yaml`, `.md`, `.sh`, ... file). Before saving, Python has to compile and the config has to load. The old file is backed up in `data/code_backups/`, the timer restarts, and if it crashes within a minute `supervisor.py` puts the old file back and the website says so.
+- **Update from GitHub** (`git pull`, with the same check and automatic rollback), **restart**, **reboot**, **logs**.
+
+Edits made on the website stay **on the Pi only**. "Show Pi edits (diff)" on the website shows them so you can copy them into GitHub. The next "Update from GitHub" asks before putting them aside (`git stash`).
+
+`config.local.yaml` (not in git) holds website-only overrides such as the camera assignment. It's merged on top of `config.yaml`.
+
+The service runs `supervisor.py`, which runs the timer and does the restarts and rollbacks. The website can't edit `supervisor.py`. Set `remote.enabled: false` to make the Pi ignore the website.
 
 ## API
 
@@ -122,8 +139,8 @@ Test it: `curl -X POST http://localhost:8080/api/camera/snap`. Camera status: `c
 | GET | `/api/health` | `{"status": "ok"}` |
 | POST | `/api/{device}/on` | Force on. Body `{"seconds": 10}` or `{"minutes": 5}` (default 60 min, pump capped at `max_run_seconds`) |
 | POST | `/api/{device}/off` | Force off for a while (same body, default 60 min) |
-| GET | `/api/camera` | Webcam found, next photo, last photo, uploads waiting |
-| POST | `/api/camera/snap` | Take and upload a photo now |
+| GET | `/api/camera` | Each webcam: found, next photo, last photo, uploads waiting |
+| POST | `/api/camera/snap?camera=both` | Take and upload a photo now (`plant`, `dashboard` or `both`) |
 | POST | `/api/{device}/auto` | Cancel the manual override and go back to the schedule |
 
 `{device}` is `light`, `pump` or `fan`. Manual overrides always end on their own and return to the schedule.
@@ -160,7 +177,10 @@ src/relays.py        GPIO relay on/off (simulated off-Pi)
 src/controller.py    1-second loop, manual overrides, safety cut-off
 src/api_server.py    REST API
 src/cloud_log.py     Firebase logging (events, status heartbeat, log lines)
-src/camera.py        USB webcam photos -> Firebase
+src/camera.py        USB webcam photos (plant + dashboard) -> Firebase
+src/config.py        loads config.yaml + config.local.yaml, checks it
+src/remote.py        website remote control (commands via Firestore)
+supervisor.py        runs the timer, restarts it, rolls back bad edits
 src/main.py          starts everything
 test_hardware.py     relay wiring test
 install.sh           Pi setup + systemd service
