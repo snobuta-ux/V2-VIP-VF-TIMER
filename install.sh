@@ -9,6 +9,19 @@ PROJECT_DIR="$(cd "$(dirname "$0")" && pwd)"
 SERVICE=vf-timer
 cd "$PROJECT_DIR"
 
+# Always follow GitHub's main branch. Older setups were on a feature branch
+# (or a clone of just that branch), so `git pull` never got the new code.
+if [ -d .git ] && [ "$(git rev-parse --abbrev-ref HEAD)" != "main" ]; then
+    echo "== Switching this Pi to the main branch"
+    if git remote set-branches origin '*' && git fetch -q origin \
+        && git checkout -q -B main origin/main && git branch -q -u origin/main main; then
+        echo "   now on main: $(git log -1 --oneline)"
+        exec bash "$PROJECT_DIR/install.sh"   # run the main branch's installer
+    else
+        echo "   could not switch to main (offline?) - continuing on $(git rev-parse --abbrev-ref HEAD)"
+    fi
+fi
+
 echo "== Installing system packages"
 sudo apt-get update -qq
 sudo apt-get install -y -qq python3-venv python3-pip fswebcam
