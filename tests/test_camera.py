@@ -137,3 +137,16 @@ def test_uploads_to_firebase_storage_when_bucket_exists(tmp_path):
     doc = db.docs["grows/farm2/photos/timer_farm2_2026-11-12_09-00-00"]
     assert doc["stored_in"] == "storage" and "jpeg" not in doc
     assert doc["url"].startswith("https://firebasestorage.googleapis.com/v0/b/proj.firebasestorage.app/o/grows%2Ffarm2")
+
+
+def test_status_finds_a_webcam_plugged_in_after_start(tmp_path):
+    devices = []
+    cam, _ = make_cam(tmp_path, FakeDB(), devices=devices)
+    assert cam.status()["webcam"] is None
+    node = tmp_path / "video2"
+    node.write_text("")
+    devices.append(str(node))            # plugged in later
+    assert cam.status()["webcam"] == str(node)
+    node.unlink()                        # unplugged
+    devices.clear()
+    assert cam.status()["webcam"] is None

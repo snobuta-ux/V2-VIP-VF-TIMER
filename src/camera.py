@@ -213,7 +213,28 @@ class Camera:
         if self._thread:
             self._thread.join(timeout=10)
 
+    def recheck(self):
+        """Look for the webcam again if it's missing or was unplugged, so the
+        status (and the website) is right without waiting for the next photo.
+        Skipped while a photo is being taken."""
+        if not self.enabled or not self._lock.acquire(blocking=False):
+            return
+        try:
+            if self.device and not Path(self.device).exists():
+                logger.info("camera %s: %s is gone (unplugged?)", self.name, self.device)
+                self.device = None
+            if not self.device:
+                found = self._find()
+                if found:
+                    self.device = found
+                    logger.info("camera %s: found USB webcam %s", self.name, found)
+        except Exception as e:
+            logger.debug("camera %s: recheck failed: %s", self.name, e)
+        finally:
+            self._lock.release()
+
     def status(self) -> dict:
+        self.recheck()
         return {"name": self.name, "enabled": self.enabled, "webcam": self.device,
                 "device_setting": self.device_pref, "group": self.group,
                 "only_when_light_on": self.only_when_light_on,
