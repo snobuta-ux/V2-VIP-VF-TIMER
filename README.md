@@ -101,14 +101,14 @@ Setup: put the service account key in the project folder as `firebase-credential
 
 If Firebase can't be reached, the timer keeps running and keeps the events in memory until the connection is back. Set `firebase.enabled: false` to turn logging off.
 
-## Webcam photos (plant + dashboard)
+## Webcam photos
 
-Two USB webcams: **plant** (pointed at the plants) and **dashboard** (pointed at the climate controller's display). Plug both into any USB ports; they're found by themselves. With `device: auto` the webcam on the lowest USB port is the plant camera and the next one is the dashboard camera. If they come out swapped, press **Swap cameras** on the website (it pins each one to its USB port in `config.local.yaml`).
+One USB webcam, the **plant** camera, pointed at the plants. Plug it into any USB port; it's found by itself. The code also supports a second **dashboard** webcam pointed at the climate controller's display, but that's turned off (`cameras.dashboard.enabled: false` in `config.yaml`). Turn it on if one is added. With `device: auto` the webcam on the lowest USB port is the plant camera and the next one is the dashboard camera. If they come out swapped, press **Swap cameras** on the website (it pins each one to its USB port in `config.local.yaml`).
 
 | Camera | Default schedule | Filename |
 |---|---|---|
 | plant | every hour 06:00–21:00, only while the light is on | `timer_farm2_2026-11-12_09-00-00.jpg` |
-| dashboard | every hour, all day | `timer_farm2_dashboard_2026-11-12_09-00-00.jpg` |
+| dashboard (off) | every hour, all day | `timer_farm2_dashboard_2026-11-12_09-00-00.jpg` |
 
 Both go to Firebase Storage `grows/farm2/photos/<filename>` with an info doc in Firestore `grows/farm2/photos` (`camera: plant|dashboard`, time, light on/off, download `url`). If the Firebase project has no Storage bucket, the photo is stored in that Firestore doc instead (field `jpeg`).
 

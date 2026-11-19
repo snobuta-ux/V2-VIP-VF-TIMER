@@ -68,9 +68,10 @@ firebase:
   heartbeat_seconds: 60       # status update interval (60 s = 1440 writes/day)
 
 # USB webcams: routine photos uploaded to Firebase.
-#   plant      pointed at the plants
-#   dashboard  pointed at the climate controller's display
-# Plug both into any USB ports - they're found automatically. With device: auto
+#   plant      pointed at the plants (in use)
+#   dashboard  pointed at the climate controller's display (NOT used right
+#              now - set its enabled: true if a second webcam is added)
+# Plug the webcam(s) into any USB port - they're found automatically. With device: auto
 # the webcam on the lowest USB port is the plant camera and the next one is the
 # dashboard camera. If they come out swapped, use "Swap cameras" on the website
 # (or set device: to the USB port shown there, e.g. "1-1.2").
@@ -97,7 +98,7 @@ cameras:
     end_at: "21:00"           # ...to 21:00 (16 photos a day)
     only_when_light_on: true  # skip photos while the grow light is off
   dashboard:
-    enabled: true
+    enabled: false            # no dashboard webcam for now
     device: auto
     every_minutes: 60         # the display is lit day and night,
     start_at: "00:00"         # so photograph it every hour, all day
