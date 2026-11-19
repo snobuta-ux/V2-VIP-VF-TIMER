@@ -150,3 +150,14 @@ def test_status_finds_a_webcam_plugged_in_after_start(tmp_path):
     node.unlink()                        # unplugged
     devices.clear()
     assert cam.status()["webcam"] is None
+
+
+def test_failed_photo_keeps_webcam_and_reports_the_error(tmp_path):
+    def broken(device, out, *args):
+        raise RuntimeError("fswebcam on /dev/video2 made no picture: Unable to find a compatible palette format")
+    cam = Camera({"upload_to": "firestore"}, tmp_path, FakeFB(FakeDB()), clock=lambda: T,
+                 find=lambda: "/dev/video2", capture=broken)
+    r = cam.snap()
+    assert not r["ok"] and "palette" in r["error"]
+    assert cam.device == "/dev/video2"
+    assert "palette" in cam.last_error["error"]

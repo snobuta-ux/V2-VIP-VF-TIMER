@@ -187,6 +187,7 @@ class Camera:
         self._thread: Optional[threading.Thread] = None
         self.last_photo: Optional[dict] = None
         self.next_photo: Optional[str] = None
+        self.last_error: Optional[dict] = None  # {"error", "at"} of the last failed photo
 
     # ── lifecycle ────────────────────────────────────────────────────────────
 
@@ -240,6 +241,7 @@ class Camera:
                 "only_when_light_on": self.only_when_light_on,
                 "every_minutes": self.every_minutes, "window": f"{self.start_at}-{self.end_at}",
                 "next_photo": self.next_photo, "last_photo": self.last_photo,
+                "last_error": self.last_error,
                 "pending_uploads": len(list(self.pending_dir.glob("*.jpg")))
                 if self.pending_dir.exists() else 0}
 
@@ -282,6 +284,8 @@ class Camera:
                     self._take(path)
             except Exception as e:
                 logger.warning("camera %s: photo failed (%s)", self.name, e)
+                self.last_error = {"error": str(e)[:500],
+                                   "at": self.clock().astimezone().isoformat(timespec="seconds")}
                 return {"ok": False, "camera": self.name, "error": str(e)}
             info = {"filename": name, "camera": self.name,
                     "pi_time": when.astimezone().isoformat(timespec="seconds"),
@@ -295,6 +299,7 @@ class Camera:
             logger.info("camera %s: took %s (%d KB)", self.name, name, info["bytes"] // 1024)
             uploaded = self._upload(path, info)
             self.last_photo = {**info, "uploaded": uploaded}
+            self.last_error = None
             return {"ok": True, **self.last_photo}
 
     def _take(self, path: Path):
@@ -314,6 +319,9 @@ class Camera:
                 path.unlink(missing_ok=True)
                 old, self.device = self.device, None
                 if attempt == 2:
+                    # The webcam is there but won't take a picture: keep showing
+                    # it as found, the error says what's wrong.
+                    self.device = self._find()
                     raise
                 logger.info("camera %s: %s didn't work, looking for the webcam again",
                             self.name, old)
