@@ -36,11 +36,11 @@ devices:
 
   pump:
     pin: 11             # relay IN1 (K1, far left)
-    max_run_seconds: 660 # safety cut-off: pump is never on longer than 11 min in one go
+    max_run_seconds: 120 # safety cut-off: pump is never on longer than 2 min in one go
     schedule:
       type: times
-      at: ["07:00", "12:00", "19:00"]  # morning, noon, night
-      run_seconds: 600                 # pump stays on 10 minutes each time
+      at: ["06:30", "09:30", "12:30", "15:30", "18:30", "21:30"]  # morning, noon, night
+      run_seconds: 60                # pump stays on 1 minutes each time
 
   fan:
     enabled: false      # not wired yet - wire to relay IN2 and set to true
