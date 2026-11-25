@@ -32,7 +32,7 @@ devices:
     schedule:
       type: daily
       on_time: "06:00"
-      off_time: "22:00" # 16 h of light
+      off_time: "22:00" # 16 hr of light
 
   pump:
     pin: 11             # relay IN1 (K1, far left)
@@ -46,10 +46,12 @@ devices:
     enabled: false      # not wired yet - wire to relay IN2 and set to true
     pin: 13             # relay IN2 (K2)
     schedule:
-      type: interval
-      every_minutes: 30   # every 30 minutes...
-      run_seconds: 600    # ...run for 10 minutes
-      start_at: "00:00"
+      type: daily     #Should be set to daily
+      on_time: "06:00"
+      off_time: "22:00" # 16 hr of fan
+      # every_minutes: 30   # every 30 minutes...
+      # run_seconds: 600    # ...run for 10 minutes
+      # start_at: "00:00"
 
 api:
   host: "0.0.0.0"
@@ -99,7 +101,7 @@ cameras:
     only_when_light_on: true  # skip photos while the grow light is off
   dashboard:
     enabled: false            # no dashboard webcam for now
-    device: auto
+    device: auto              # auto is just the camera
     every_minutes: 60         # the display is lit day and night,
     start_at: "00:00"         # so photograph it every hour, all day
     end_at: "23:00"
